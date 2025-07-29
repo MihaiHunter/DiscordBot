@@ -7,7 +7,7 @@ from threading import Thread
 
 # === Pornire server Flask pentru uptime ===
 app = Flask('')
-
+ 
 @app.route('/')
 def home():
     return "Botul e online!"
