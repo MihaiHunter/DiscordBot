@@ -7,7 +7,7 @@ from threading import Thread
 
 # === Pornire server Flask pentru uptime ===
 app = Flask('')
- 
+
 @app.route('/')
 def home():
     return "Botul e online!"
@@ -163,4 +163,28 @@ async def on_voice_state_update(member, before, after):
         if user_data:
             channel_name = user_data.get("channel_name", f"{member.name}'s Channel")
             drag_and_drop = user_data.get("drag_and_drop", False)
-            visibility = user_data.get("visib_
+            visibility = user_data.get("visibility", True)
+        else:
+            channel_name = f"{member.name}'s Channel"
+            drag_and_drop, visibility = get_channel_properties(after.channel)
+
+        new_channel = await guild.create_voice_channel(name=channel_name, overwrites=overwrites, category=after.channel.category)
+        await set_permissions_for_channel(new_channel, drag_and_drop, visibility)
+        save_channel_data(member.id, new_channel.id, channel_name, drag_and_drop, visibility)
+        await member.move_to(new_channel)
+
+    if before.channel and len(before.channel.members) == 0:
+        user_data = get_user_channel_data(member.id)
+        if user_data and before.channel.id == user_data.get("channel_id"):
+            drag_and_drop, visibility = get_channel_properties(before.channel)
+            save_channel_data(member.id, before.channel.id, before.channel.name, drag_and_drop, visibility)
+            await before.channel.delete()
+
+async def set_permissions_for_channel(channel, drag_and_drop, visibility):
+    everyone_role = channel.guild.default_role
+    await channel.set_permissions(everyone_role, overwrite=discord.PermissionOverwrite(
+        move_members=drag_and_drop, view_channel=visibility))
+
+# === Pornire bot ===
+keep_alive()
+bot.run(os.getenv("DISCORD_TOKEN"))
