@@ -1,0 +1,5 @@
+discord.py
+flask
+pymongo
+pyngrok
+python-dotenv
