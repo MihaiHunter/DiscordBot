@@ -3,3 +3,5 @@ flask
 pymongo
 pyngrok
 python-dotenv
+openai
+requests
