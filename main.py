@@ -4,6 +4,9 @@ import pymongo
 import os
 from flask import Flask
 from threading import Thread
+import openai
+import requests
+import time
 
 # === Pornire server Flask pentru uptime ===
 app = Flask('')
@@ -23,7 +26,11 @@ def keep_alive():
 intents = discord.Intents.all()
 bot = commands.Bot(command_prefix='!', intents=intents)
 
-# === Conectare la MongoDB Atlas ===
+# === OpenAI + Replicate API ===
+openai.api_key = os.getenv("OPENAI_API_KEY")
+REPLICATE_API_TOKEN = os.getenv("REPLICATE_API_TOKEN")
+
+# === Conectare MongoDB Atlas ===
 try:
     mongo_client = pymongo.MongoClient(os.getenv("MONGO_URI"))
     print("✅ Conectat la MongoDB Atlas.")
@@ -54,6 +61,7 @@ def get_user_channel_data(user_id):
 def save_channel_data(user_id, channel_id, name, drag_and_drop, visibility):
     try:
         data = {
+            "user_id": user_id,
             "channel_id": channel_id,
             "channel_name": name,
             "drag_and_drop": drag_and_drop,
@@ -185,6 +193,70 @@ async def set_permissions_for_channel(channel, drag_and_drop, visibility):
     await channel.set_permissions(everyone_role, overwrite=discord.PermissionOverwrite(
         move_members=drag_and_drop, view_channel=visibility))
 
-# === Pornire bot ===
+# === AI Commands: $ask / $image în canalul #work ===
+@bot.event
+async def on_message(message):
+    if message.author.bot:
+        return
+
+    if message.channel.name != "work":
+        return
+
+    # $ask
+    if message.content.startswith("$ask"):
+        prompt = message.content[len("$ask"):].strip()
+        if not prompt:
+            await message.channel.send("📌 Scrie o întrebare după `$ask`.")
+            return
+        await message.channel.send("✍️ Gândesc...")
+        try:
+            response = openai.ChatCompletion.create(
+                model="gpt-3.5-turbo",
+                messages=[{"role": "user", "content": prompt}]
+            )
+            reply = response['choices'][0]['message']['content']
+            await message.channel.send(reply)
+        except Exception as e:
+            await message.channel.send("❌ Eroare OpenAI.")
+            print(f"[OpenAI] {e}")
+
+    # $image
+    elif message.content.startswith("$image"):
+        prompt = message.content[len("$image"):].strip()
+        if not prompt:
+            await message.channel.send("📌 Scrie un prompt după `$image`.")
+            return
+        await message.channel.send("🎨 Generez imaginea...")
+
+        try:
+            response = requests.post(
+                "https://api.replicate.com/v1/predictions",
+                headers={
+                    "Authorization": f"Token {REPLICATE_API_TOKEN}",
+                    "Content-Type": "application/json"
+                },
+                json={
+                    "version": "db21e45e5cd586025b1e69fdf7b5d00a08c0c0c7a6f9a48d807d26eae3710c6e",  # SD 1.5
+                    "input": {"prompt": prompt}
+                }
+            ).json()
+
+            prediction_url = response["urls"]["get"]
+
+            for _ in range(10):
+                result = requests.get(prediction_url, headers={"Authorization": f"Token {REPLICATE_API_TOKEN}"}).json()
+                if result["status"] == "succeeded":
+                    await message.channel.send(result["output"][0])
+                    return
+                time.sleep(2)
+
+            await message.channel.send("⏱️ Timp de așteptare depășit.")
+        except Exception as e:
+            await message.channel.send("❌ Eroare generare imagine.")
+            print(f"[Replicate] {e}")
+
+    await bot.process_commands(message)
+
+# === Pornește botul ===
 keep_alive()
 bot.run(os.getenv("DISCORD_TOKEN"))
